@@ -1679,13 +1679,15 @@ var breakFieldArrayName = function (name, searchName) {
         suffix: suffix,
     };
 };
-var decrementIndex = function (name, searchName) {
+var modifyIndex = function (_a) {
+    var name = _a.name, searchName = _a.searchName, delta = _a.delta, newIndex = _a.newIndex;
     var breakdown = breakFieldArrayName(name, searchName);
     if (!breakdown) {
         throw new Error('Invalid array field name');
     }
     var index = breakdown.index, prefix = breakdown.prefix, suffix = breakdown.suffix;
-    return "" + prefix + (index - 1) + suffix;
+    var updatedIndex = newIndex !== undefined ? newIndex : index + (delta || 0);
+    return "" + prefix + updatedIndex + suffix;
 };
 function useFieldArray(_a) {
     var control = _a.control, name = _a.name;
@@ -1705,18 +1707,22 @@ function useFieldArray(_a) {
             }
         }
     };
-    var removeFromFields = function (index) {
+    var removeFromFields = function (index, retain) {
         var _a, _b;
-        if (index === undefined) {
-            return;
-        }
+        var removed = {};
         // First remove at the index
         var lastIndex = undefined;
         for (var key in fieldsRef.current) {
             if (isMatchFieldArrayName(key, name) && fieldsRef.current[key]) {
                 var i = breakFieldArrayName(key, name).index;
                 if (i === index) {
-                    removeFieldEventListener(fieldsRef.current[key], true);
+                    if (retain) {
+                        removed[key] = fieldsRef.current[key];
+                        delete fieldsRef.current[key];
+                    }
+                    else {
+                        removeFieldEventListener(fieldsRef.current[key], true);
+                    }
                 }
                 lastIndex = lastIndex === undefined || i > lastIndex ? i : lastIndex;
             }
@@ -1728,13 +1734,65 @@ function useFieldArray(_a) {
                     var j = breakFieldArrayName(key, name).index;
                     if (i === j) {
                         // Update the index of the ref and delete the old index.
-                        var updatedKey = decrementIndex(key, name);
+                        var updatedKey = modifyIndex({
+                            name: key,
+                            searchName: name,
+                            delta: -1,
+                        });
                         fieldsRef.current[updatedKey] = fieldsRef.current[key];
                         if (((_b = (_a = fieldsRef.current[updatedKey]) === null || _a === void 0 ? void 0 : _a.ref) === null || _b === void 0 ? void 0 : _b.name) === key) {
                             fieldsRef.current[updatedKey].ref.name = updatedKey;
                         }
                         delete fieldsRef.current[key];
                     }
+                }
+            }
+        }
+        return removed;
+    };
+    var insertIntoFields = function (index, fieldRef) {
+        var _a, _b, _c, _d;
+        // Figure out how big the array is
+        var lastIndex = 0;
+        for (var key in fieldsRef.current) {
+            if (isMatchFieldArrayName(key, name) && fieldsRef.current[key]) {
+                var i = breakFieldArrayName(key, name).index;
+                lastIndex = i > lastIndex ? i : lastIndex;
+            }
+        }
+        for (var i = lastIndex; i >= index; i--) {
+            for (var key in fieldsRef.current) {
+                if (isMatchFieldArrayName(key, name) && fieldsRef.current[key]) {
+                    var j = breakFieldArrayName(key, name).index;
+                    if (i === j) {
+                        // Shift i to i + 1
+                        var updatedKey = modifyIndex({
+                            name: key,
+                            searchName: name,
+                            delta: 1,
+                        });
+                        fieldsRef.current[updatedKey] = fieldsRef.current[key];
+                        if (((_b = (_a = fieldsRef.current[updatedKey]) === null || _a === void 0 ? void 0 : _a.ref) === null || _b === void 0 ? void 0 : _b.name) === key) {
+                            fieldsRef.current[updatedKey].ref.name = updatedKey;
+                        }
+                        delete fieldsRef.current[key];
+                    }
+                }
+            }
+        }
+        // Now insert into index
+        for (var key in fieldRef) {
+            if (isMatchFieldArrayName(key, name)) {
+                // Move fieldRef[key] into the new index.
+                // Fix up the ref name too.
+                var newKey = modifyIndex({
+                    name: key,
+                    searchName: name,
+                    newIndex: index,
+                });
+                fieldsRef.current[newKey] = fieldRef[key];
+                if (((_d = (_c = fieldsRef.current[newKey]) === null || _c === void 0 ? void 0 : _c.ref) === null || _d === void 0 ? void 0 : _d.name) === key) {
+                    fieldsRef.current[newKey].ref.name = newKey;
                 }
             }
         }
@@ -1771,7 +1829,9 @@ function useFieldArray(_a) {
         if (!isUndefined(index)) {
             mapCurrentFieldsValueWithState();
         }
-        removeFromFields(index);
+        if (index !== undefined) {
+            removeFromFields(index, false);
+        }
         watchFieldArrayRef.current[name] = removeArrayAt(fields, index);
         setField(watchFieldArrayRef.current[name]);
         if (errorsRef.current[name]) {
@@ -1812,7 +1872,10 @@ function useFieldArray(_a) {
         mapCurrentFieldsValueWithState();
         var fieldValues = getFieldValueByName(fieldsRef.current, name);
         moveArrayAt(fieldValues, from, to);
-        resetFields(fieldValues);
+        if (from !== to) {
+            var fieldRef = removeFromFields(from, true);
+            insertIntoFields(to, fieldRef);
+        }
         moveArrayAt(fields, from, to);
         setField(__spread(fields));
         watchFieldArrayRef.current[name] = fields;

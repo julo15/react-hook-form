@@ -1379,13 +1379,14 @@ const breakFieldArrayName = (name, searchName) => {
         suffix,
     };
 };
-const decrementIndex = (name, searchName) => {
+const modifyIndex = ({ name, searchName, delta, newIndex, }) => {
     const breakdown = breakFieldArrayName(name, searchName);
     if (!breakdown) {
         throw new Error('Invalid array field name');
     }
     const { index, prefix, suffix } = breakdown;
-    return `${prefix}${index - 1}${suffix}`;
+    const updatedIndex = newIndex !== undefined ? newIndex : index + (delta || 0);
+    return `${prefix}${updatedIndex}${suffix}`;
 };
 function useFieldArray({ control, name }) {
     const methods = useFormContext();
@@ -1404,18 +1405,22 @@ function useFieldArray({ control, name }) {
             }
         }
     };
-    const removeFromFields = (index) => {
+    const removeFromFields = (index, retain) => {
         var _a, _b;
-        if (index === undefined) {
-            return;
-        }
+        const removed = {};
         // First remove at the index
         let lastIndex = undefined;
         for (const key in fieldsRef.current) {
             if (isMatchFieldArrayName(key, name) && fieldsRef.current[key]) {
                 const i = breakFieldArrayName(key, name).index;
                 if (i === index) {
-                    removeFieldEventListener(fieldsRef.current[key], true);
+                    if (retain) {
+                        removed[key] = fieldsRef.current[key];
+                        delete fieldsRef.current[key];
+                    }
+                    else {
+                        removeFieldEventListener(fieldsRef.current[key], true);
+                    }
                 }
                 lastIndex = lastIndex === undefined || i > lastIndex ? i : lastIndex;
             }
@@ -1427,13 +1432,65 @@ function useFieldArray({ control, name }) {
                     const j = breakFieldArrayName(key, name).index;
                     if (i === j) {
                         // Update the index of the ref and delete the old index.
-                        const updatedKey = decrementIndex(key, name);
+                        const updatedKey = modifyIndex({
+                            name: key,
+                            searchName: name,
+                            delta: -1,
+                        });
                         fieldsRef.current[updatedKey] = fieldsRef.current[key];
                         if (((_b = (_a = fieldsRef.current[updatedKey]) === null || _a === void 0 ? void 0 : _a.ref) === null || _b === void 0 ? void 0 : _b.name) === key) {
                             fieldsRef.current[updatedKey].ref.name = updatedKey;
                         }
                         delete fieldsRef.current[key];
                     }
+                }
+            }
+        }
+        return removed;
+    };
+    const insertIntoFields = (index, fieldRef) => {
+        var _a, _b, _c, _d;
+        // Figure out how big the array is
+        let lastIndex = 0;
+        for (const key in fieldsRef.current) {
+            if (isMatchFieldArrayName(key, name) && fieldsRef.current[key]) {
+                const i = breakFieldArrayName(key, name).index;
+                lastIndex = i > lastIndex ? i : lastIndex;
+            }
+        }
+        for (let i = lastIndex; i >= index; i--) {
+            for (const key in fieldsRef.current) {
+                if (isMatchFieldArrayName(key, name) && fieldsRef.current[key]) {
+                    const j = breakFieldArrayName(key, name).index;
+                    if (i === j) {
+                        // Shift i to i + 1
+                        const updatedKey = modifyIndex({
+                            name: key,
+                            searchName: name,
+                            delta: 1,
+                        });
+                        fieldsRef.current[updatedKey] = fieldsRef.current[key];
+                        if (((_b = (_a = fieldsRef.current[updatedKey]) === null || _a === void 0 ? void 0 : _a.ref) === null || _b === void 0 ? void 0 : _b.name) === key) {
+                            fieldsRef.current[updatedKey].ref.name = updatedKey;
+                        }
+                        delete fieldsRef.current[key];
+                    }
+                }
+            }
+        }
+        // Now insert into index
+        for (const key in fieldRef) {
+            if (isMatchFieldArrayName(key, name)) {
+                // Move fieldRef[key] into the new index.
+                // Fix up the ref name too.
+                const newKey = modifyIndex({
+                    name: key,
+                    searchName: name,
+                    newIndex: index,
+                });
+                fieldsRef.current[newKey] = fieldRef[key];
+                if (((_d = (_c = fieldsRef.current[newKey]) === null || _c === void 0 ? void 0 : _c.ref) === null || _d === void 0 ? void 0 : _d.name) === key) {
+                    fieldsRef.current[newKey].ref.name = newKey;
                 }
             }
         }
@@ -1473,7 +1530,9 @@ function useFieldArray({ control, name }) {
         if (!isUndefined(index)) {
             mapCurrentFieldsValueWithState();
         }
-        removeFromFields(index);
+        if (index !== undefined) {
+            removeFromFields(index, false);
+        }
         watchFieldArrayRef.current[name] = removeArrayAt(fields, index);
         setField(watchFieldArrayRef.current[name]);
         if (errorsRef.current[name]) {
@@ -1514,7 +1573,10 @@ function useFieldArray({ control, name }) {
         mapCurrentFieldsValueWithState();
         const fieldValues = getFieldValueByName(fieldsRef.current, name);
         moveArrayAt(fieldValues, from, to);
-        resetFields(fieldValues);
+        if (from !== to) {
+            const fieldRef = removeFromFields(from, true);
+            insertIntoFields(to, fieldRef);
+        }
         moveArrayAt(fields, from, to);
         setField([...fields]);
         watchFieldArrayRef.current[name] = fields;
