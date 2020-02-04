@@ -1,0 +1,7 @@
+import { FieldValues } from '../types';
+export declare const isKey: (value: string | []) => boolean;
+export default function set(
+  object: FieldValues,
+  path: string,
+  value: any,
+): Record<string, any>;
