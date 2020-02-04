@@ -11,7 +11,7 @@ export const appendId = <
   value: FormArrayValues,
 ) => ({
   ...(isObject(value) ? value : { value }),
-  id: generateId(),
+  id: value.id || generateId(),
 });
 
 export const mapIds = (data: any) =>
