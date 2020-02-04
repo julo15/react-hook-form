@@ -23,6 +23,35 @@ import {
 
 const { useEffect, useRef, useState } = React;
 
+const breakFieldArrayName = (
+  name: string,
+  searchName: string,
+): { prefix: string; index: number; suffix: string } | undefined => {
+  const prefix = `${searchName}[`;
+  if (!name.startsWith(prefix)) {
+    return;
+  }
+
+  const startIndex = prefix.length;
+  const endIndex = name.indexOf(']', startIndex);
+  const index = Number(name.substring(startIndex, endIndex));
+  const suffix = name.substring(endIndex);
+  return {
+    index,
+    prefix,
+    suffix,
+  };
+};
+
+const decrementIndex = (name: string, searchName: string): string => {
+  const breakdown = breakFieldArrayName(name, searchName);
+  if (!breakdown) {
+    throw new Error('Invalid array field name');
+  }
+  const { index, prefix, suffix } = breakdown;
+  return `${prefix}${index - 1}${suffix}`;
+};
+
 export function useFieldArray<
   FormArrayValues extends FieldValues = FieldValues,
   ControlProp extends Control = Control
@@ -58,6 +87,41 @@ export function useFieldArray<
     for (const key in fieldsRef.current) {
       if (isMatchFieldArrayName(key, name) && fieldsRef.current[key]) {
         removeFieldEventListener(fieldsRef.current[key] as Field, true);
+      }
+    }
+  };
+
+  const removeFromFields = (index?: number) => {
+    if (index === undefined) {
+      return;
+    }
+
+    // First remove at the index
+    let lastIndex: number | undefined = undefined;
+    for (const key in fieldsRef.current) {
+      if (isMatchFieldArrayName(key, name) && fieldsRef.current[key]) {
+        const i = breakFieldArrayName(key, name)!.index;
+        if (i === index) {
+          removeFieldEventListener(fieldsRef.current[key] as Field, true);
+        }
+        lastIndex = lastIndex === undefined || i > lastIndex ? i : lastIndex;
+      }
+    }
+    for (let i = index + 1; i <= lastIndex!; i++) {
+      // Remove field i
+      for (const key in fieldsRef.current) {
+        if (isMatchFieldArrayName(key, name) && fieldsRef.current[key]) {
+          const j = breakFieldArrayName(key, name)!.index;
+          if (i === j) {
+            // Update the index of the ref and delete the old index.
+            const updatedKey = decrementIndex(key, name);
+            fieldsRef.current[updatedKey] = fieldsRef.current[key];
+            if (fieldsRef.current[updatedKey]?.ref?.name === key) {
+              fieldsRef.current[updatedKey]!.ref.name = updatedKey;
+            }
+            delete fieldsRef.current[key];
+          }
+        }
       }
     }
   };
@@ -124,9 +188,7 @@ export function useFieldArray<
       mapCurrentFieldsValueWithState();
     }
 
-    resetFields(
-      removeArrayAt(getFieldValueByName(fieldsRef.current, name), index),
-    );
+    removeFromFields(index);
 
     watchFieldArrayRef.current[name] = removeArrayAt(fields, index);
     setField(watchFieldArrayRef.current[name]);
