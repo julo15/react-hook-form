@@ -1342,7 +1342,7 @@ function useForm(_a) {
             defaultValue = getDefaultValue(defaultValuesRef.current, name);
             isEmptyDefaultValue = isUndefined(defaultValue);
             isFieldArray = isNameInFieldArray(fieldArrayNamesRef.current, name);
-            if (!isEmptyDefaultValue && !isFieldArray) {
+            if (!isEmptyDefaultValue) {
                 setFieldValue(name, defaultValue);
             }
         }
